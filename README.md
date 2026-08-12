@@ -88,6 +88,10 @@ These are the ones that cost real time on this build:
   ships libcamera 0.7.0, `rpicam-apps`, and `python3-picamera2`.
 - **Python is 3.14**, so upstream wheels for Pi imaging/HAT libraries frequently
   don't exist. Prefer distro packages; `smbus2` replaces the unpackaged `smbus`.
+- **CMake is 4.2**, which removed support for `cmake_minimum_required(VERSION
+  <3.5)`. Raspberry Pi OS ships CMake 3.x, where that's only deprecated — so
+  vendor source trees (HailoRT and its bundled deps) fail to configure here until
+  you pass `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`.
 - **`sudo poweroff` in vendor scripts** assumes passwordless sudo. `systemctl
   poweroff` is authorised by polkit for the active local session instead.
 - **`sudo` needs a TTY**, which agent/automation contexts don't have. `pkexec`

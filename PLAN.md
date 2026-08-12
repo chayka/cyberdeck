@@ -29,17 +29,19 @@ no vendor code redistributed, reasoning in comments rather than commit messages.
 | UPS HAT (E) | **Working**, verified against hardware at `0x2d`, firmware v2.0. |
 | Top-bar indicator | **Working**, running as `cyberdeck-ups.service`, registered with GNOME. |
 | Camera Module 3 | **Working** — `imx708_wide_noir`, up to 4608x2592. |
-| Hailo-8 | Enumerates on PCIe, no driver bound. Build not started. |
-
-All required packages turned out to be present in the base image already; the
-`setup.sh` run installed nothing new and only adjusted group membership.
+| Hailo-8 | **Working** — driver v4.24.0 via DKMS, HailoRT installed, YOLOv8s at ~174 FPS. |
+| Camera → Hailo | **Working** — `hailo/detect.py`, verified detecting a bottle at 81%. |
+| Python envs | **Done** — per-peripheral venvs with `--system-site-packages`. |
 
 ## Next actions
 
-1. Hailo: build `hailo_pci` via DKMS + firmware + HailoRT from source. Needs
-   upstream version pinning checked first — see `hailo/README.md`.
-2. Camera → Hailo inference pipeline.
-3. Implement the per-peripheral venvs described below.
+1. Live preview mode of `detect.py` has not been eyeballed (needs a human at the
+   screen); only `--still` is verified.
+2. Consider a UPower-compatible daemon so the UPS appears in GNOME's real battery
+   menu rather than a custom indicator.
+3. Reboot test — everything is configured to persist, but that's unproven.
+4. Hailo model compilation (Dataflow Compiler) if custom models are ever needed;
+   that pins Python 3.10/3.11 and belongs in a container.
 
 ## Open hardware question
 

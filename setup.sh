@@ -29,6 +29,10 @@ for part in "${parts[@]}"; do
   fi
 done
 
+# Shared Python tooling, needed regardless of which peripherals were requested.
+printf '\n\033[1;35m######## base ########\033[0m\n'
+source "$ROOT/common/base-setup.sh"
+
 for part in "${parts[@]}"; do
   printf '\n\033[1;35m######## %s ########\033[0m\n' "$part"
   # Sourced rather than executed so apt_refresh runs once across all parts.
