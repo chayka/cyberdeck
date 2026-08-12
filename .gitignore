@@ -1,0 +1,16 @@
+# Waveshare's own demo code — fetched on demand by ups/fetch-vendor.sh, not
+# redistributed here (their license, not ours).
+ups/vendor/
+
+# Hailo sources and firmware are large, license-gated, and version-specific;
+# hailo/setup.sh fetches them.
+hailo/build/
+hailo/src/
+*.hef
+
+__pycache__/
+*.py[cod]
+
+# Per-peripheral virtualenvs (see PLAN.md — created with --system-site-packages).
+.venv/
+
