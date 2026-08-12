@@ -33,15 +33,42 @@ no vendor code redistributed, reasoning in comments rather than commit messages.
 | Camera → Hailo | **Working** — `hailo/detect.py`, verified detecting a bottle at 81%. |
 | Python envs | **Done** — per-peripheral venvs with `--system-site-packages`. |
 
-## Next actions
+## Next direction: ROS 2
 
-1. Live preview mode of `detect.py` has not been eyeballed (needs a human at the
-   screen); only `--still` is verified.
-2. Consider a UPower-compatible daemon so the UPS appears in GNOME's real battery
-   menu rather than a custom indicator.
-3. Reboot test — everything is configured to persist, but that's unproven.
-4. Hailo model compilation (Dataflow Compiler) if custom models are ever needed;
-   that pins Python 3.10/3.11 and belongs in a container.
+Wrap camera + Hailo inference into a ROS 2 module — a node publishing detections
+(presumably `vision_msgs/Detection2DArray`) from the existing pipeline.
+
+The hard part is already reusable: `hailo/detect.py`'s `Detector` holds a
+persistent HailoRT pipeline and returns per-class normalised boxes, which maps
+almost directly onto a detections publisher. This should be wrapping, not
+re-engineering.
+
+**Settle this before designing anything:** ROS 2 LTS releases have historically
+targeted the *previous* Ubuntu LTS (Jazzy → 24.04), so `apt` may have no ROS 2
+packages for Resolute at all. If so the options are build-from-source or a
+container — a fork in the road worth resolving first, not three hours in.
+
+Second consideration: this machine is Python 3.14 and `rclpy` may lag. ROS 2 also
+expects the *system* interpreter, which cuts against the per-project venv pattern
+below. A container likely resolves both problems at once — the first real use for
+Docker on this deck.
+
+## Loose ends
+
+1. Live preview mode of `detect.py` has never been eyeballed (needs a human at the
+   screen). `--still` and `--stream` are both verified.
+2. **Reboot test outstanding** — everything is configured to persist, but that is
+   a claim, not a result.
+3. Streaming runs at ~10.7 fps, limited by CPU-side letterboxing, PIL drawing and
+   JPEG encoding — not by the accelerator, which does yolov8s at 174 fps. Hardware
+   JPEG encoding via Picamera2's encoder would be the real fix.
+4. Possible hardware issue: the UPS showed input present at 15.13 V but ~0.01 A
+   while the pack discharged at 0.65 A. May just be recharge hysteresis at 96%; if
+   it persists, the deck drains the battery while apparently plugged in.
+5. Optional: a UPower-compatible daemon would put the UPS in GNOME's real battery
+   menu (low-battery warnings, suspend policy) instead of a custom indicator.
+6. Hailo model compilation (Dataflow Compiler) only matters if custom models are
+   ever needed; it pins Python 3.10/3.11 and belongs in a container.
 
 ## Open hardware question
 
