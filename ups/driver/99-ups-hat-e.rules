@@ -1,0 +1,29 @@
+# Bind the UPS HAT (E) driver to the MCU at 0x2d on the 40-pin header.
+#
+# The Raspberry Pi OS way to do this is a device-tree overlay, and every guide
+# you will find says to drop a .dtbo in /boot/firmware/overlays/ and add a
+# dtoverlay= line to config.txt. On Ubuntu that directory does not exist. The
+# boot partition here is laid out for tryboot (config.txt sets os_prefix=current/)
+# and flash-kernel rebuilds current/overlays/ from the kernel package on every
+# kernel upgrade, so anything hand-placed there is deleted the first time a new
+# linux-raspi lands. ups-hat-e.dts documents the overlay route and the one
+# directory that does persist; this rule is the route that needs no reboot and
+# no boot-partition surgery at all.
+#
+# Instantiating an I2C device from userspace is a documented kernel interface,
+# not a workaround — see Documentation/i2c/instantiating-devices.rst, "Method 4:
+# Instantiate from user-space". It exists for exactly this case: a device on a
+# general-purpose bus that the firmware's device tree has no reason to know about.
+#
+# Matching on OF_ALIAS_0 rather than KERNEL=="i2c-1" is deliberate. Linux bus
+# numbering is assigned in probe order and the Pi 5 has four I2C adapters (two
+# on the RP1, two on the SoC); "i2c-1" happens to be the header bus today. The
+# device-tree alias i2c1 *is* the header bus by definition, so this keeps
+# pointing at the right pins no matter how the adapters enumerate.
+#
+# Writing new_device emits a uevent carrying MODALIAS=i2c:ups-hat-e, so udev
+# autoloads the module itself; there is nothing to add to /etc/modules-load.d.
+# If the board at 0x2d is not a UPS HAT the driver's ID-register check fails the
+# probe with -ENODEV and the client is simply left unbound.
+
+ACTION=="add", SUBSYSTEM=="i2c", ENV{OF_ALIAS_0}=="i2c1", ATTR{new_device}="ups-hat-e 0x2d"

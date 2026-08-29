@@ -19,3 +19,14 @@ __pycache__/
 # Per-peripheral virtualenvs (see PLAN.md — created with --system-site-packages).
 .venv/
 
+
+# Kernel module build artifacts (ups/driver). The source and the DKMS recipe are
+# tracked; the objects are rebuilt per kernel by DKMS.
+*.ko
+*.o
+*.mod
+*.mod.c
+*.dtbo
+.*.cmd
+Module.symvers
+modules.order

@@ -29,7 +29,8 @@ Each peripheral is self-contained, with its own `setup.sh`:
 ```
 common/lib.sh      shared shell helpers
 setup.sh           orchestrator — runs all parts, or the ones you name
-ups/               Waveshare UPS HAT (E): driver + GNOME top-bar indicator
+ups/               Waveshare UPS HAT (E): kernel driver, reader, indicator
+ups/driver/        power_supply kernel module — makes the pack a real battery
 camera/            Camera Module 3: libcamera / rpicam-apps / Picamera2
 hailo/             Hailo-8 AI HAT: PCIe driver + HailoRT
 ```
@@ -43,17 +44,33 @@ sudo bash setup.sh ups camera   # or just some parts
 
 All parts are idempotent. Group membership changes need a fresh login session.
 
-Then, as your normal user (no sudo):
+Then make the pack a real system battery — GNOME power menu, low-battery
+warnings, automatic shutdown before the cells are damaged:
 
 ```bash
-bash ups/install-indicator.sh   # battery indicator in the GNOME top bar
+sudo bash ups/driver/install-driver.sh
 ```
+
+That supersedes the standalone top-bar indicator
+(`ups/install-indicator.sh`), which is kept only as a fallback for running
+without the kernel driver. Per-cell voltages and charge stage cannot be attached
+to GNOME's own battery menu — it is built from UPower's schema, and UPower has
+no mechanism for vendor-specific properties — but they are one command away:
+
+```bash
+python3 ups/ups_hat_e.py --watch
+```
+
+Order matters if you already had the indicator installed: the driver claims
+`0x2d`, so its direct I2C reads start returning `EBUSY` and it silently renders
+`--` rather than failing. Restart it and it reads through the driver instead.
 
 ## Verify
 
 ```bash
 i2cdetect -y 1                  # UPS HAT should appear at 0x2d
 python3 ups/ups_hat_e.py        # one-shot battery reading
+upower -i /org/freedesktop/UPower/devices/battery_BAT0   # the desktop's view
 rpicam-hello --list-cameras     # Camera Module 3
 hailortcli fw-control identify  # Hailo-8 (not working yet)
 ```
@@ -83,6 +100,28 @@ These are the ones that cost real time on this build:
   default-enabled `ubuntu-appindicators` extension renders.
 - **`config.txt` is at `/boot/firmware/config.txt`**, and this image uses
   `os_prefix=current/`.
+- **There is no `/boot/firmware/overlays/`, and the directory that looks like it
+  is a trap.** The tryboot layout puts overlays in
+  `/boot/firmware/current/overlays/`, which flash-kernel rebuilds from the
+  kernel package on every kernel upgrade — so a hand-placed `.dtbo` survives
+  until the next `linux-raspi` and then vanishes without a word. The one
+  directory flash-kernel searches that no package owns is
+  `/etc/flash-kernel/dtbs/`. Often the overlay is avoidable entirely: an I2C
+  device can be instantiated from userspace via a udev rule
+  (`Documentation/i2c/instantiating-devices.rst`), which needs no reboot. See
+  `ups/driver/`.
+- **Suspend and hibernate do not exist.** `linux-raspi` is built with
+  `CONFIG_SUSPEND` and `CONFIG_HIBERNATION` unset, so `/sys/power/state` is an
+  empty file and `/sys/power/disk` is absent. Nothing configurable brings them
+  back; it needs a rebuilt kernel, and on BCM2712 s2idle is [not supported
+  upstream](https://www.phoronix.com/news/Suspend-To-Idle-Raspberry-Pi) anyway.
+  Hibernation is the more plausible of the two, since it needs no SoC sleep
+  state.
+- **A HAT battery is invisible to the desktop until the kernel knows about it.**
+  UPower enumerates `/sys/class/power_supply` and has no plugin interface, so no
+  userspace script — however correct — can produce a low-battery warning or a
+  critical-shutdown policy. That takes a `power_supply` class driver;
+  `ups/driver/` is one.
 - **Don't add the Raspberry Pi apt repo.** Its packages target Raspberry Pi OS
   and mixing them into Ubuntu breaks the libcamera stack. Ubuntu 26.04 already
   ships libcamera 0.7.0, `rpicam-apps`, and `python3-picamera2`.

@@ -27,6 +27,12 @@ Differences from Waveshare's `ups.py` / `batteryTray.py` demo:
 * No shelling out to `i2cdetect`/`i2cset`, and `systemctl poweroff` instead of
   `sudo poweroff` (polkit authorises the active session without a password).
 
+Two backends read the same board and produce the same `UpsStatus`:
+
+* `UpsHatE` talks to the MCU over I2C directly, and needs nothing installed.
+* `SysfsUpsHatE` reads the kernel driver in `driver/`, which registers the pack
+  as `BAT0`. Prefer it when it is available -- see `open_ups()` for why.
+
 Standalone usage:  python3 ups_hat_e.py [--watch]
 """
 
@@ -35,6 +41,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import enum
+import pathlib
 import time
 
 from smbus2 import SMBus
@@ -70,6 +77,15 @@ _UNKNOWN = 0xFFFF
 
 #: Per-cell voltage below which the pack is considered critically low (mV).
 LOW_CELL_MV = 3150
+
+#: Charge current below which the pack counts as neither charging nor
+#: discharging (mA). Mirrors UPS_CURRENT_DEADBAND_UA in driver/ups-hat-e.c, and
+#: has to: a pack held at the constant-voltage stage settles to a few mA of
+#: taper that crosses zero between samples, so without a deadband this file
+#: reports "idle" or "charging" on alternate polls while the kernel driver --
+#: reading the same register -- reports "fully charged" to the desktop. Two
+#: defensible answers on screen at once is worse than either.
+CURRENT_DEADBAND_MA = 30
 
 
 class ChargeStage(enum.Enum):
@@ -142,11 +158,18 @@ class UpsStatus:
         the flags stay set while VBUS is present even when the charger has
         stopped delivering, which is exactly the case the vendor demo gets wrong.
         """
-        return self.battery_ma > 0
+        return self.battery_ma > CURRENT_DEADBAND_MA
+
+    @property
+    def is_discharging(self) -> bool:
+        return self.battery_ma < -CURRENT_DEADBAND_MA
 
     @property
     def is_full(self) -> bool:
-        return self.stage is ChargeStage.FULL
+        # The percentage counts as well as the stage: the gauge reports 100%
+        # while the charger is still in constant voltage, and calling that
+        # anything other than full invites the question of what is missing.
+        return self.stage is ChargeStage.FULL or self.percent >= 100
 
     @property
     def is_critical(self) -> bool:
@@ -157,15 +180,21 @@ class UpsStatus:
         return self.minutes_to_full if self.is_charging else self.minutes_to_empty
 
     def state_label(self) -> str:
+        # Same order of reasoning as ups_hat_e_status() in the kernel driver, so
+        # that this and the desktop cannot describe the pack differently.
+        #
         # Measured current is checked before the stage field on purpose. The MCU
         # keeps reporting stage=FULL once charging completes, but if the input
         # then stops delivering, the pack quietly starts supplying the load --
         # trusting the stage here would show "full" while the battery drains.
+        # That draw is far outside the deadband, so it is caught here first.
         if self.is_charging:
             return "fast charging" if self.fast_charging_flag else "charging"
-        if self.battery_ma < 0:
+        if self.is_discharging:
             return "on battery (input present)" if self.vbus_present else "on battery"
-        return "full" if self.is_full else "idle"
+        if self.is_full:
+            return "full"
+        return "idle (input present)" if self.vbus_present else "idle"
 
     def summary(self) -> str:
         return (
@@ -176,6 +205,8 @@ class UpsStatus:
 
 class UpsHatE:
     """Talks to the UPS HAT (E) MCU over I2C."""
+
+    supports_poweroff = True
 
     def __init__(self, bus: int = I2C_BUS, address: int = I2C_ADDR) -> None:
         self._bus_number = bus
@@ -249,6 +280,145 @@ class UpsHatE:
         )
 
 
+SYSFS_ROOT = pathlib.Path("/sys/class/power_supply")
+
+#: Charge stages keyed by the label the kernel driver prints, which is generated
+#: from the same register manual as ChargeStage above.
+_STAGE_BY_LABEL = {stage.label: stage for stage in ChargeStage}
+
+
+class SysfsUpsHatE:
+    """Reads the board through the kernel driver instead of over I2C.
+
+    Same registers, same board, same UpsStatus -- but read via
+    /sys/class/power_supply rather than by opening the bus. Worth preferring
+    whenever the module is loaded, for a reason that is not really about
+    efficiency: two independent decoders of the same registers drift apart.
+
+    The driver applies a 30 mA deadband to charge current so that the taper at
+    the end of a charge does not flip its state every poll (see the comment on
+    UPS_CURRENT_DEADBAND_UA in driver/ups-hat-e.c). This file's `is_charging`
+    has no such deadband. Run both against a pack sitting at 100% and the
+    desktop says "fully charged" while this says "charging" -- both defensible,
+    both from the same register, and impossible to explain to anyone looking at
+    the screen. Reading the driver makes that disagreement structurally
+    impossible, and keeps a single reader on the I2C bus as a side benefit.
+    """
+
+    #: The MCU can be told to cut its rail, but only over I2C -- and with the
+    #: driver loaded, critical-battery policy belongs to UPower anyway.
+    supports_poweroff = False
+
+    def __init__(self, battery: str = "BAT0", mains: str = "AC0") -> None:
+        self._battery = SYSFS_ROOT / battery
+        self._mains = SYSFS_ROOT / mains
+
+    @classmethod
+    def available(cls, battery: str = "BAT0") -> bool:
+        """Whether *our* driver is what registered BAT0.
+
+        The model name is checked rather than the directory alone: BAT0 is the
+        conventional name for a system battery and finding one says nothing
+        about which driver put it there.
+        """
+        try:
+            model = (SYSFS_ROOT / battery / "model_name").read_text().strip()
+        except OSError:
+            return False
+        return model == "UPS HAT (E)"
+
+    def open(self) -> "SysfsUpsHatE":
+        return self
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self) -> "SysfsUpsHatE":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        pass
+
+    @staticmethod
+    def _text(path: pathlib.Path) -> str | None:
+        # Properties the driver answers with -ENODATA -- an absent runtime
+        # estimate, an unset design capacity -- surface as EOPNOTSUPP on read,
+        # which is the sysfs spelling of "no value", not of "broken".
+        try:
+            return path.read_text().strip()
+        except OSError:
+            return None
+
+    def _int(self, node: pathlib.Path, name: str, scale: int = 1) -> int:
+        value = self._text(node / name)
+        if value is None:
+            raise OSError(f"{node / name} is unreadable")
+        return int(value) // scale
+
+    def _optional_minutes(self, name: str) -> int | None:
+        value = self._text(self._battery / name)
+        return None if value is None else int(value) // 60
+
+    def software_revision(self) -> str:
+        # The driver logs the revision at probe but does not export it; the
+        # journal is the honest place to point rather than inventing a number.
+        return "see 'journalctl -k | grep ups-hat-e'"
+
+    def read(self) -> UpsStatus:
+        flags = dict(
+            pair.split("=", 1)
+            for pair in (self._text(self._battery / "charge_flags") or "").split()
+        )
+        link = dict(
+            pair.split("=", 1)
+            for pair in (self._text(self._battery / "link_status") or "").split()
+        )
+        cells = [
+            int(uv) // 1000
+            for uv in (self._text(self._battery / "cell_voltages") or "").split()
+        ]
+        stage_label = self._text(self._battery / "charge_stage") or ""
+
+        vbus_mv = self._int(self._mains, "voltage_now", 1000)
+        vbus_ma = self._int(self._mains, "current_now", 1000)
+        # power_now was added to AC0 after the first version of the driver, so
+        # fall back to the product rather than refusing to read a board that is
+        # otherwise answering perfectly well.
+        vbus_uw = self._text(self._mains / "power_now")
+        vbus_mw = int(vbus_uw) // 1000 if vbus_uw else vbus_mv * vbus_ma // 1000
+
+        return UpsStatus(
+            charging_flag=flags.get("charging") == "1",
+            fast_charging_flag=flags.get("fast_charging") == "1",
+            vbus_present=flags.get("vbus_present") == "1",
+            stage=_STAGE_BY_LABEL.get(stage_label),
+            gauge_ok=link.get("gauge") == "ok",
+            charger_ok=link.get("charger") == "ok",
+            vbus_mv=vbus_mv,
+            vbus_ma=vbus_ma,
+            vbus_mw=vbus_mw,
+            battery_mv=self._int(self._battery, "voltage_now", 1000),
+            battery_ma=self._int(self._battery, "current_now", 1000),
+            percent=self._int(self._battery, "capacity"),
+            remaining_mah=self._int(self._battery, "charge_now", 1000),
+            minutes_to_empty=self._optional_minutes("time_to_empty_now"),
+            minutes_to_full=self._optional_minutes("time_to_full_now"),
+            cell_mv=tuple(cells),  # type: ignore[arg-type]
+        )
+
+
+def open_ups(prefer_kernel: bool = True):
+    """Open the best available reader for the HAT.
+
+    Prefers the kernel driver when it is loaded, falls back to talking to the
+    MCU directly. Callers that need `poweroff_until_charged()` should check
+    `supports_poweroff` rather than assuming which one they got.
+    """
+    if prefer_kernel and SysfsUpsHatE.available():
+        return SysfsUpsHatE().open()
+    return UpsHatE().open()
+
+
 def _print(status: UpsStatus) -> None:
     print(status.summary())
     stage = status.stage.label if status.stage else "unknown"
@@ -272,10 +442,27 @@ def _main() -> int:
     parser = argparse.ArgumentParser(description="Read the Waveshare UPS HAT (E).")
     parser.add_argument("--watch", action="store_true", help="poll continuously")
     parser.add_argument("--interval", type=float, default=2.0, help="seconds between polls")
+    parser.add_argument("--i2c", action="store_true",
+                        help="read the MCU directly, bypassing the kernel driver")
     args = parser.parse_args()
 
-    with UpsHatE() as ups:
-        print(f"UPS HAT (E) firmware v{ups.software_revision()}\n")
+    if args.i2c and SysfsUpsHatE.available():
+        # Worth saying plainly rather than letting errno 16 speak for itself:
+        # the kernel driver has claimed 0x2d, so the address is no longer
+        # addressable from userspace. i2cdetect shows `UU` there instead of the
+        # address. This is not a fault to work around -- forcing past a bound
+        # driver means two masters interleaving transactions on the same MCU.
+        print("The kernel driver currently owns 0x2d, so --i2c cannot read it.\n"
+              "Either drop --i2c, or unbind the driver first:\n"
+              "  sudo bash driver/install-driver.sh --uninstall")
+        return 1
+
+    with open_ups(prefer_kernel=not args.i2c) as ups:
+        via = "kernel driver" if isinstance(ups, SysfsUpsHatE) else "I2C"
+        if isinstance(ups, SysfsUpsHatE):
+            print(f"UPS HAT (E) via {via}\n")
+        else:
+            print(f"UPS HAT (E) via {via}, firmware v{ups.software_revision()}\n")
         while True:
             _print(ups.read())
             if not args.watch:

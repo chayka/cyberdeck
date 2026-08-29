@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Device-tree overlay for the Waveshare UPS HAT (E) — the alternative to
+ * 99-ups-hat-e.rules, for anyone who wants the HAT declared in the device tree
+ * proper rather than instantiated at runtime.
+ *
+ * This is the "correct" way in the sense that the board really is a fixed piece
+ * of hardware wired to known pins, which is what a device tree is for. It is
+ * also the way every Raspberry Pi guide describes. On Ubuntu it costs more than
+ * it does on Raspberry Pi OS, for two reasons worth writing down:
+ *
+ * 1. There is no /boot/firmware/overlays/. This deck's config.txt sets
+ *    os_prefix=current/, the tryboot A/B layout, so overlays live in
+ *    /boot/firmware/current/overlays/ — and flash-kernel repopulates that
+ *    directory from the kernel package on every kernel upgrade
+ *    (see find_device_tree_overlays in /usr/share/flash-kernel/functions).
+ *    A .dtbo copied there by hand survives exactly until the next linux-raspi.
+ *
+ * 2. flash-kernel does search one directory that is not managed by any package
+ *    and is therefore the right home for a local overlay:
+ *
+ *        /etc/flash-kernel/dtbs/overlays/
+ *
+ *    It is searched ahead of the kernel's own device-tree paths, and the results
+ *    are deduplicated by filename with first-match-wins, so a file placed there
+ *    both persists across upgrades and can shadow a stock overlay of the same
+ *    name.
+ *
+ * Install:
+ *     dtc -@ -I dts -O dtb -o ups-hat-e.dtbo ups-hat-e.dts
+ *     sudo install -Dm644 ups-hat-e.dtbo /etc/flash-kernel/dtbs/overlays/ups-hat-e.dtbo
+ *     sudo flash-kernel                       # copies it into the boot partition
+ *     echo 'dtoverlay=ups-hat-e' | sudo tee -a /boot/firmware/config.txt
+ *     # then reboot; on this tryboot layout the next boot happens twice
+ *
+ * If you take this route, remove the udev rule — otherwise both mechanisms try
+ * to claim 0x2d and the second one logs an EBUSY.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2712";
+
+	fragment@0 {
+		/*
+		 * The i2c_arm label is the 40-pin header bus on every Pi, which is
+		 * the same bus the udev rule reaches via the i2c1 device-tree
+		 * alias. dtparam=i2c_arm=on in config.txt has already enabled it.
+		 */
+		target = <&i2c_arm>;
+
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			ups_hat_e: ups@2d {
+				compatible = "waveshare,ups-hat-e";
+				reg = <0x2d>;
+				status = "okay";
+			};
+		};
+	};
+};

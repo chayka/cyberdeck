@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """GNOME top-bar indicator for the Waveshare UPS HAT (E).
 
+Superseded by the kernel driver in `driver/`, which registers the pack as a real
+`power_supply` device so GNOME draws the battery itself. This is kept as the
+fallback for running without that driver, and for the porting notes below.
+
 Replaces Waveshare's PyQt5 `batteryTray.py`, which cannot work on this machine:
 
 * `QSystemTrayIcon` needs an XEmbed system tray. GNOME dropped that years ago and
@@ -10,6 +14,13 @@ Replaces Waveshare's PyQt5 `batteryTray.py`, which cannot work on this machine:
 * The vendor launcher hardcodes `DISPLAY=':0.0'` and `/home/pi/...`.
 * Icons were bundled PNGs; we use the theme's symbolic battery icons so the
   indicator matches the rest of the top bar in both light and dark styles.
+
+It reads through the kernel driver in `driver/` when that is loaded, and talks
+to the MCU directly otherwise -- see `open_ups()`. That is not a preference: once
+the driver claims 0x2d, the kernel owns the address and userspace I2C to it
+returns EBUSY (`i2cdetect -y 1` shows `UU` rather than `2d`). An indicator built
+on direct I2C does not fail loudly at that point, it just quietly renders "--"
+forever, because the poll loop catches OSError and carries on.
 
 Run directly for a foreground test, or install as a user service:
     bash install-indicator.sh
@@ -37,7 +48,7 @@ for _notify_abi in ("0.7", "0.8"):
     except (ValueError, ImportError):  # libnotify GIR absent or different ABI
         Notify = None
 
-from ups_hat_e import UpsHatE, UpsStatus  # noqa: E402
+from ups_hat_e import UpsStatus, open_ups  # noqa: E402
 
 APP_ID = "cyberdeck-ups"
 POLL_SECONDS = 5
@@ -73,7 +84,7 @@ def _battery_icon(status: UpsStatus) -> str:
 
 class UpsIndicator:
     def __init__(self) -> None:
-        self._ups = UpsHatE().open()
+        self._ups = open_ups()
         self._critical_since: float | None = None
         self._notification = None
 
@@ -118,9 +129,12 @@ class UpsIndicator:
         try:
             status = self._ups.read()
         except OSError as exc:
-            # Transient I2C errors happen; keep the last good reading on screen.
+            # Transient read errors happen on a HAT header; keep the last good
+            # reading on screen. Naming the backend matters here -- "I2C error"
+            # while actually reading sysfs sends you to debug the wrong layer.
+            source = "sysfs" if not self._ups.supports_poweroff else "I2C"
             self._indicator.set_label("--", "100%")
-            self._rows["state"].set_label(f"I2C error: {exc}")
+            self._rows["state"].set_label(f"{source} read error: {exc}")
             return True
 
         self._indicator.set_icon_full(_battery_icon(status), status.summary())
@@ -184,10 +198,18 @@ class UpsIndicator:
         # Ask the HAT to restore power once a charger is connected, then halt.
         # systemctl (not `sudo poweroff`) so polkit authorises the active session
         # without a password.
-        try:
-            self._ups.poweroff_until_charged()
-        except OSError as exc:
-            print(f"could not arm UPS auto-restart: {exc}", file=sys.stderr)
+        #
+        # Arming the HAT is only possible over I2C, so with the kernel driver
+        # loaded that half belongs to the driver's poweroff_cuts_power module
+        # parameter, which hooks the same command into the system's own shutdown
+        # path. This still halts either way -- it fires on a collapsing *cell*,
+        # which UPower's percentage-based policy will not catch, so the two are
+        # layered rather than competing.
+        if self._ups.supports_poweroff:
+            try:
+                self._ups.poweroff_until_charged()
+            except OSError as exc:
+                print(f"could not arm UPS auto-restart: {exc}", file=sys.stderr)
         subprocess.Popen(["systemctl", "poweroff"])
         Gtk.main_quit()
 

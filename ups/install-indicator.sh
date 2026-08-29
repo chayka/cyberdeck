@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Install the UPS indicator as a systemd --user service so it starts at login.
 #
+# Superseded by driver/ — with the kernel module installed the pack is a real
+# system battery and GNOME draws it in the top bar itself, so this is only worth
+# running if you are deliberately going without the driver. The detail GNOME has
+# no place for is available with `python3 ups_hat_e.py --watch`, and cannot be
+# attached to the system battery menu short of a GNOME Shell extension.
+#
 # Run as your normal user, NOT with sudo:
 #   bash install-indicator.sh
 #

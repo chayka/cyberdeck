@@ -43,5 +43,13 @@ add_user_to_group dialout
 say "UPS HAT (E): done"
 info "Verify the HAT is on the bus:  i2cdetect -y 1     (expect 0x2d)"
 info "Read it once:                  python3 ups/ups_hat_e.py"
-info "Install the top-bar indicator: bash ups/install-indicator.sh   (no sudo)"
+info
+info "Then make the pack a real system battery — GNOME power menu, low-battery"
+info "warnings, automatic shutdown before the cells are damaged:"
+info "  sudo bash ups/driver/install-driver.sh"
+info
+info "The standalone top-bar indicator is superseded by that; it is only worth"
+info "installing if you skip the kernel driver:"
+info "  bash ups/install-indicator.sh   (no sudo)"
+info
 info "Group changes need a new login session (or 'newgrp dialout' in this shell)."
