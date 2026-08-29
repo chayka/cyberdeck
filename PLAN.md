@@ -56,7 +56,7 @@ Docker on this deck.
 
 ## Loose ends
 
-0. Three things in `ups/driver/` are shipped but unverified, in descending order
+1. Three things in `ups/driver/` are shipped but unverified, in descending order
    of how much they matter:
    - `poweroff_cuts_power=1` (off by default) would let a shutdown actually cut
      the rail instead of letting the Pi drain the pack overnight — but the same
@@ -66,14 +66,23 @@ Docker on this deck.
      Set it to whatever the fitted 21700s are rated at.
    - `ups-hat-e.dts` compiles and applies to `bcm2712-rpi-5-b.dtb` under
      `dtmerge`, but has never been booted; the udev rule is the tested path.
-1. Live preview mode of `detect.py` has never been eyeballed (needs a human at the
+2. **The critical-battery shutdown has never been exercised end-to-end.** The
+   pieces are verified — UPower runs as a system service independent of any
+   login session, `CanPowerOff` is `challenge`, and the fallback chain resolves
+   past two unavailable sleep modes — but nothing has actually run the pack down
+   to 2% to watch it fire. Worth doing deliberately once, on a day when losing
+   the session does not matter. Note this is a real gain over the old indicator
+   either way: that watchdog was a `systemd --user` unit bound to
+   `graphical-session.target`, so it did not run at GDM, over SSH, or before
+   login.
+3. Live preview mode of `detect.py` has never been eyeballed (needs a human at the
    screen). `--still` and `--stream` are both verified.
-2. **Reboot test outstanding** — everything is configured to persist, but that is
+4. **Reboot test outstanding** — everything is configured to persist, but that is
    a claim, not a result.
-3. Streaming runs at ~10.7 fps, limited by CPU-side letterboxing, PIL drawing and
+5. Streaming runs at ~10.7 fps, limited by CPU-side letterboxing, PIL drawing and
    JPEG encoding — not by the accelerator, which does yolov8s at 174 fps. Hardware
    JPEG encoding via Picamera2's encoder would be the real fix.
-4. Possible hardware issue: the UPS showed input present at 15.13 V but ~0.01 A
+6. Possible hardware issue: the UPS showed input present at 15.13 V but ~0.01 A
    while the pack discharged at 0.65 A. May just be recharge hysteresis at 96%; if
    it persists, the deck drains the battery while apparently plugged in.
    **Not reproducing as of 2026-08-29**: with the pack at 100% in the
@@ -82,39 +91,48 @@ Docker on this deck.
    different charge stage from the original observation, though, so it is
    evidence rather than a resolution. Watch `AC0/current_now` once the stage
    reaches `full`; the driver makes this a one-line check now.
-5. ~~Optional: a UPower-compatible daemon would put the UPS in GNOME's real
+7. ~~Optional: a UPower-compatible daemon would put the UPS in GNOME's real
    battery menu.~~ **Done**, and not as a daemon: UPower has no plugin
    interface, it reads `/sys/class/power_supply`. So `ups/driver/` is a kernel
    module. `upower -i .../battery_BAT0` reports `power supply: yes`.
-6. Hailo model compilation (Dataflow Compiler) only matters if custom models are
+8. Hailo model compilation (Dataflow Compiler) only matters if custom models are
    ever needed; it pins Python 3.10/3.11 and belongs in a container.
 
-## Next after that: sleep, and what it would cost
+## Settled: no sleep, and no local kernel to get it
 
 `systemctl suspend` and `systemctl hibernate` cannot work on this deck, and the
 reason is below the driver layer: Ubuntu's `linux-raspi` is built with
 `CONFIG_SUSPEND` and `CONFIG_HIBERNATION` unset. `/sys/power/state` is an empty
-file, `/sys/power/disk` is absent, and logind reports every sleep mode as `na`.
-`CONFIG_ARCH_SUSPEND_POSSIBLE=y`, so this is a flavour decision, not an
-architecture limit.
+file, `/sys/power/disk` is absent, and logind reports every sleep mode as `na`
+— which is why GNOME shows no Suspend entry. `CONFIG_ARCH_SUSPEND_POSSIBLE=y`,
+so this is a flavour decision, not an architecture limit.
 
-The two halves are not equally promising and should not be attempted together:
+Getting either back means a rebuilt kernel. **Decided 2026-08-29: not doing
+that.** It would mean carrying a kernel `apt` keeps trying to replace, plus DKMS
+rebuilds for `hailo_pci` and `ups-hat-e` against it — a permanent maintenance
+cost for one feature, on a deck whose entire premise is staying on stock Ubuntu
+packages.
 
-- **Suspend** — Raspberry Pi s2idle work [targets BCM2835, not the Pi 5's
-  BCM2712](https://www.phoronix.com/news/Suspend-To-Idle-Raspberry-Pi), and the
-  long-standing Pi pattern is [suspends fine, never
-  resumes](https://github.com/raspberrypi/linux/issues/2198). Enabling
-  `CONFIG_SUSPEND` most likely yields a deck that switches off and stays off.
-- **Hibernate** — needs no SoC sleep state at all: freeze, write RAM to swap,
-  power off, resume through an ordinary boot. It needs a rebuilt `linux-raspi`
-  with `CONFIG_HIBERNATION=y`, swap at least the size of RAM (currently a 1 GB
-  swapfile against 15 GB), and `resume=`/`resume_offset=` on the cmdline.
+Recorded so it does not get re-litigated, along with what the answer would have
+been:
 
-**Settle before starting:** whether to carry a locally rebuilt kernel at all.
-It means owning the DKMS rebuild for `hailo_pci` and `ups-hat-e` against a
-kernel `apt` will keep trying to replace, on a deck whose entire premise so far
-has been staying on stock Ubuntu packages. Worth being honest that this buys one
-feature at a real recurring maintenance cost.
+- **Suspend** was never plausible regardless. Raspberry Pi s2idle work [targets
+  BCM2835, not the Pi 5's BCM2712](https://www.phoronix.com/news/Suspend-To-Idle-Raspberry-Pi),
+  and the long-standing Pi pattern is [suspends fine, never
+  resumes](https://github.com/raspberrypi/linux/issues/2198).
+- **Hibernate** was the half that could have worked, needing no SoC sleep state:
+  freeze, write RAM to swap, power off, resume through an ordinary boot. It
+  would have needed `CONFIG_HIBERNATION=y`, swap at least the size of RAM
+  (currently a 1 GB swapfile against 15 GB), and `resume=`/`resume_offset=` on
+  the cmdline.
+
+The useful consolation is that the thing sleep would have protected — not
+running the pack flat — is handled anyway. UPower's documented fallback for
+`CriticalPowerAction` is HybridSleep → Hibernate → PowerOff, and with all sleep
+modes unavailable it resolves to a clean power-off at `PercentageAction=2.0`.
+`/etc/UPower/UPower.conf` is deliberately left at its default rather than pinned
+to `PowerOff`: pinning works today but would stop it doing the right thing if
+hibernation ever arrives.
 
 ## Open hardware question
 
