@@ -149,14 +149,10 @@ class UpsIndicator:
         self._rows["capacity"].set_label(
             f"Capacity: {status.percent}%  ({status.remaining_mah} mAh)"
         )
-        # The MCU reports 0xFFFF when it has no estimate, e.g. once the pack is
-        # full or right after a load change; the driver surfaces that as None.
-        remaining = status.minutes_remaining
-        if remaining is None:
-            self._rows["runtime"].set_label("Estimate: —")
-        else:
-            verb = "to full" if status.is_charging else "to empty"
-            self._rows["runtime"].set_label(f"Estimate: {remaining} min {verb}")
+        # runtime_label() handles the 0xFFFF "no estimate" the MCU reports once
+        # the pack is full or right after a load change, falling back to charge
+        # over current rather than showing a bare dash.
+        self._rows["runtime"].set_label(f"Estimate: {status.runtime_label()}")
         self._rows["input"].set_label(
             f"Input: {status.vbus_mv / 1000:.2f} V  "
             f"{status.vbus_ma / 1000:.2f} A  {status.vbus_mw / 1000:.1f} W"

@@ -120,6 +120,15 @@ def _s16(data: list[int], index: int) -> int:
     return value - 0x10000 if value > 0x7FFF else value
 
 
+def _duration(minutes: int) -> str:
+    """Minutes as something readable at a glance."""
+    if minutes >= 2880:  # past two days the gauge is extrapolating anyway
+        return f"{minutes / 1440:.1f}d"
+    if minutes >= 60:
+        return f"{minutes // 60}h {minutes % 60:02d}m"
+    return f"{minutes}m"
+
+
 def _optional_u16(data: list[int], index: int) -> int | None:
     value = _u16(data, index)
     return None if value == _UNKNOWN else value
@@ -178,6 +187,57 @@ class UpsStatus:
     @property
     def minutes_remaining(self) -> int | None:
         return self.minutes_to_full if self.is_charging else self.minutes_to_empty
+
+    @property
+    def full_charge_mah(self) -> int | None:
+        """Full-charge capacity, back-computed from remaining and percentage.
+
+        The MCU reports remaining charge but not the gauge's FullChargeCapacity,
+        so this is the only figure available. Refused below 10% because the
+        division turns a one-percent quantisation error into hundreds of mAh.
+        """
+        if self.percent < 10:
+            return None
+        return round(self.remaining_mah * 100 / self.percent)
+
+    def _derived_minutes(self) -> int | None:
+        """A runtime estimate from charge and current, for when the gauge has none.
+
+        The MCU answers 0xFFFF for whichever direction is not currently
+        meaningful -- always time-to-empty while the input is attached -- and
+        also for a few samples after any load change, which is exactly when
+        someone is watching the screen. Charge over current is cruder than the
+        gauge's own model (it assumes the present draw continues, ignoring
+        voltage sag), hence marked as an estimate wherever it is shown.
+        """
+        if self.is_charging:
+            full = self.full_charge_mah
+            if full is None:
+                return None
+            return max(0, round((full - self.remaining_mah) * 60 / self.battery_ma))
+        if self.is_discharging:
+            return round(self.remaining_mah * 60 / -self.battery_ma)
+        return None
+
+    def runtime_label(self) -> str:
+        """Time to full or to empty, in whichever direction the pack is moving."""
+        if self.is_charging:
+            if self.minutes_to_full is not None:
+                return f"{_duration(self.minutes_to_full)} to full"
+            derived = self._derived_minutes()
+            return f"~{_duration(derived)} to full (estimated)" if derived is not None \
+                else "charging, no estimate yet"
+        if self.is_discharging:
+            if self.minutes_to_empty is not None:
+                return f"{_duration(self.minutes_to_empty)} to empty"
+            derived = self._derived_minutes()
+            return f"~{_duration(derived)} to empty (estimated)" if derived is not None \
+                else "on battery, no estimate yet"
+        # Idle: neither direction has a meaningful answer, so say why rather
+        # than printing a dash and leaving it to be interpreted as a fault.
+        if self.is_full:
+            return "full, running on input" if self.vbus_present else "full"
+        return "idle, input present" if self.vbus_present else "idle"
 
     def state_label(self) -> str:
         # Same order of reasoning as ups_hat_e_status() in the kernel driver, so
@@ -427,10 +487,12 @@ def _print(status: UpsStatus) -> None:
           f" vbus={status.vbus_present}]")
     print(f"  input      {status.vbus_mv / 1000:.2f}V "
           f"{status.vbus_ma / 1000:.2f}A {status.vbus_mw / 1000:.1f}W")
-    remaining = status.minutes_remaining
-    verb = "to full" if status.is_charging else "to empty"
-    estimate = f"{remaining} min {verb}" if remaining is not None else "no estimate"
-    print(f"  capacity   {status.remaining_mah} mAh, {estimate}")
+    full = status.full_charge_mah
+    capacity = f"{status.remaining_mah} mAh"
+    if full is not None:
+        capacity += f" of ~{full} mAh"
+    print(f"  capacity   {capacity}")
+    print(f"  runtime    {status.runtime_label()}")
     print("  cells      " + " ".join(f"{mv}mV" for mv in status.cell_mv))
     if not (status.gauge_ok and status.charger_ok):
         print(f"  LINK FAULT: gauge_ok={status.gauge_ok} charger_ok={status.charger_ok}")
