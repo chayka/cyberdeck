@@ -59,11 +59,25 @@ SHUTDOWN_GRACE_SECONDS = 60
 
 
 def _battery_icon(status: UpsStatus) -> str:
-    """Pick a themed symbolic icon for the current charge level."""
+    """Pick a themed symbolic icon for the current charge level.
+
+    The plug indication keys off vbus_present, not is_charging. They are not the
+    same question and conflating them is a real bug: is_charging means "current
+    is flowing into the pack", and the driver's 30 mA deadband deliberately
+    makes that false once a charge tapers off. Keyed off is_charging, the icon
+    dropped its plug the moment the pack reached full and showed a plain battery
+    while the deck was sitting on wall power. What the icon is asked to convey
+    is "am I on external power", which is exactly what vbus_present says.
+    """
     level = max(0, min(100, round(status.percent / 10) * 10))
-    suffix = "-charging" if status.is_charging else ""
+    if status.vbus_present:
+        suffix = "-charged" if status.is_full else "-charging"
+    else:
+        suffix = ""
     candidates = [
         f"battery-level-{level}{suffix}-symbolic",
+        f"battery-level-{level}-charging-symbolic" if status.vbus_present else
+        f"battery-level-{level}-symbolic",
         f"battery-level-{level}-symbolic",
     ]
     if status.percent >= 80:
