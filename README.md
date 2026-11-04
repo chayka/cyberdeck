@@ -32,7 +32,8 @@ setup.sh           orchestrator — runs all parts, or the ones you name
 ups/               Waveshare UPS HAT (E): kernel driver, reader, indicator
 ups/driver/        power_supply kernel module — makes the pack a real battery
 camera/            Camera Module 3: libcamera / rpicam-apps / Picamera2
-hailo8/            Hailo-8 AI HAT: PCIe driver + HailoRT
+hailo8/            Hailo-8 AI HAT+: PCIe driver + HailoRT 4.24
+hailo10h/          Hailo-10H on the Seeed M.2 HAT: driver, HailoRT 5.5, hailo-ollama
 ```
 
 ## Install

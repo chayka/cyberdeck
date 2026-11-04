@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common/lib.sh"
 require_root
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALL_PARTS=(ups camera hailo8)
+ALL_PARTS=(ups camera hailo8 hailo10h)
 
 parts=("$@")
 if [[ ${#parts[@]} -eq 0 ]]; then
@@ -47,5 +47,6 @@ Log out and back in, then verify:
 
   i2cdetect -y 1               # UPS HAT on the I2C bus
   rpicam-hello --list-cameras  # Camera Module 3
-  hailortcli fw-control identify   # Hailo-8 (after a reboot)
+  hailortcli fw-control identify   # whichever Hailo is fitted (after a reboot)
+  ls -l /dev/h1x-0             # Hailo-10H's device node, once no-mip is active
 EOF

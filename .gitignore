@@ -8,6 +8,10 @@ ups/vendor/
 hailo8/build/
 hailo8/src/
 hailo8/dkms-stage/
+
+# Hailo-10H: same idea, and its firmware license forbids anything but
+# unmodified binary redistribution. hailo10h/fetch-sources.sh retrieves it.
+hailo10h/src/
 *.hef
 
 # HailoRT drops a log next to wherever it is run from.
