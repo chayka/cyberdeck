@@ -4,7 +4,7 @@
 # Run as your normal user (no sudo) -- nothing here touches the system:
 #   bash fetch-sources.sh
 #
-# Everything lands in hailo/src/, which is gitignored: it's Hailo's GPL-2.0 source
+# Everything lands in hailo8/src/, which is gitignored: it's Hailo's GPL-2.0 source
 # and their firmware blob, pinned by branch rather than vendored into this repo.
 #
 # THE IMPORTANT PART: the branch. hailort-drivers' `master` supports only the
@@ -65,4 +65,4 @@ bash download_firmware.sh
 
 ls -l hailo8_fw.*.bin
 echo
-echo "Sources ready. Next: sudo bash ../setup.sh   (or: sudo bash ../../setup.sh hailo)"
+echo "Sources ready. Next: sudo bash ../setup.sh   (or: sudo bash ../../setup.sh hailo8)"

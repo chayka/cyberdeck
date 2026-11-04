@@ -2,12 +2,12 @@
 # redistributed here (their license, not ours).
 ups/vendor/
 
-# Hailo sources and firmware are large and version-specific; hailo/fetch-sources.sh
+# Hailo sources and firmware are large and version-specific; hailo8/fetch-sources.sh
 # retrieves them. dkms-stage/ works around an upstream Makefile path bug — see
-# hailo/setup.sh.
-hailo/build/
-hailo/src/
-hailo/dkms-stage/
+# hailo8/setup.sh.
+hailo8/build/
+hailo8/src/
+hailo8/dkms-stage/
 *.hef
 
 # HailoRT drops a log next to wherever it is run from.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build HailoRT's Python bindings and make them importable from hailo/.venv.
+# Build HailoRT's Python bindings and make them importable from hailo8/.venv.
 #
 # Run as your normal user (no sudo):
 #   bash install-pyhailort.sh

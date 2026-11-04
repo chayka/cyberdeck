@@ -31,7 +31,7 @@ no vendor code redistributed, reasoning in comments rather than commit messages.
 | Top-bar indicator | **Retired** — GNOME draws the battery itself now. Kept in the tree as the no-driver fallback; reads through the driver when one is loaded. |
 | Camera Module 3 | **Working** — `imx708_wide_noir`, up to 4608x2592. |
 | Hailo-8 | **Working** — driver v4.24.0 via DKMS, HailoRT installed, YOLOv8s at ~174 FPS. |
-| Camera → Hailo | **Working** — `hailo/detect.py`, verified detecting a bottle at 81%. |
+| Camera → Hailo | **Working** — `hailo8/detect.py`, verified detecting a bottle at 81%. |
 | Python envs | **Done** — per-peripheral venvs with `--system-site-packages`. |
 
 ## Next direction: ROS 2
@@ -39,7 +39,7 @@ no vendor code redistributed, reasoning in comments rather than commit messages.
 Wrap camera + Hailo inference into a ROS 2 module — a node publishing detections
 (presumably `vision_msgs/Detection2DArray`) from the existing pipeline.
 
-The hard part is already reusable: `hailo/detect.py`'s `Detector` holds a
+The hard part is already reusable: `hailo8/detect.py`'s `Detector` holds a
 persistent HailoRT pipeline and returns per-class normalised boxes, which maps
 almost directly onto a detections publisher. This should be wrapping, not
 re-engineering.

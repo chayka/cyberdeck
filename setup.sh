@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common/lib.sh"
 require_root
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALL_PARTS=(ups camera hailo)
+ALL_PARTS=(ups camera hailo8)
 
 parts=("$@")
 if [[ ${#parts[@]} -eq 0 ]]; then

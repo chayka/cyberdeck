@@ -37,7 +37,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 SYSTEM_PYTHON=/usr/bin/python3
-ALL_PARTS=(ups camera hailo)
+ALL_PARTS=(ups camera hailo8)
 
 parts=("$@")
 if [[ ${#parts[@]} -eq 0 ]]; then

@@ -5,7 +5,7 @@
 # in the Ubuntu archive, and the Raspberry Pi apt repo must not be added to an
 # Ubuntu system, so we build the PCIe driver from source via DKMS instead.
 #
-# Requires hailo/fetch-sources.sh to have been run first (as your normal user).
+# Requires hailo8/fetch-sources.sh to have been run first (as your normal user).
 #
 # Good news, contrary to expectations: the hailo8 branch builds cleanly against
 # the 7.0.0-raspi kernel with no patching. The `del_timer_sync` -> `timer_delete_sync`
@@ -99,4 +99,4 @@ if [[ -e /dev/hailo0 ]]; then
 else
   warn "/dev/hailo0 did not appear — check 'dmesg | grep -i hailo'"
 fi
-info "Verify with:  hailortcli fw-control identify   (needs HailoRT — see hailo/README.md)"
+info "Verify with:  hailortcli fw-control identify   (needs HailoRT — see hailo8/README.md)"
